@@ -11,6 +11,8 @@ import os
 import matplotlib.pyplot as plt
 import heartpy
 import matplotlib.widgets as mwidgets
+from dotenv import load_dotenv
+load_dotenv()
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -88,7 +90,7 @@ class SwimSenseReceiver:
 import numpy as np
 
 if __name__ == "__main__":
-    receiver = SwimSenseReceiver(port='/dev/ttyUSB0', baudrate=115200)
+    receiver = SwimSenseReceiver(port=os.getenv('USB_PORT'), baudrate=115200)
     receiver.start()
 
     # --- CSV setup ---
