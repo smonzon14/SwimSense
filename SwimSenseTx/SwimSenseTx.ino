@@ -12,7 +12,7 @@
  * this project also realess in GitHub:
  * https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series
  * */
-
+#include "float16.h"
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
 #include "MPU9250.h"
@@ -24,7 +24,7 @@ static SSD1306Wire  display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, R
 
 #define TX_OUTPUT_POWER                             5        // dBm
 
-#define LORA_BANDWIDTH                              0         // [0: 125 kHz,
+#define LORA_BANDWIDTH                              1         // [0: 125 kHz,
                                                               //  1: 250 kHz,
                                                               //  2: 500 kHz,
                                                               //  3: Reserved]
@@ -38,11 +38,7 @@ static SSD1306Wire  display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, R
 #define LORA_FIX_LENGTH_PAYLOAD_ON                  false
 #define LORA_IQ_INVERSION_ON                        false
 
-
-#define RX_TIMEOUT_VALUE                            1000
-#define BUFFER_SIZE                                 40 // Define the payload size here
-
-#define TX_DELAY                                    50
+#define TX_DELAY                                    10
 MPU9250 mpu;
 
 
@@ -52,9 +48,6 @@ int LED_B = LED_BUILTIN;   //  The on-board Arduion LED_B
 int Signal;                // holds the incoming raw data. Signal value can range from 0-1024
 int Threshold = 2100;       // Determine which Signal to "count as a beat", and which to ingore.
 // ============
-
-char txpacket[BUFFER_SIZE];
-char rxpacket[BUFFER_SIZE];
 
 double txNumber;
 
@@ -118,10 +111,12 @@ void setup() {
   display.display();
   delay(200);
   display.clear();
+
+  // pinMode(LED_BUILTIN, OUTPUT);
 }
 unsigned long prev_ms = millis();
 int STEP = 0;
-const int s = 16;
+const int s = 8;
 const int x_bounds[] = {s, 63 - s};
 const int y_bounds[] = {38 + s, 127 - s};
 const int w = x_bounds[1] - x_bounds[0];
@@ -146,46 +141,53 @@ void drawBall(int i){
 
   display.drawCircle(x + x_bounds[0], y + y_bounds[0], s);
 }
+
+struct Telemetry {
+  float16 vx, vy, vz;    // 6 bytes
+  float16 qw, qx, qy, qz;// 8 bytes
+  uint16_t signal;      // 2 bytes
+} __attribute__((packed));
+
 void loop()
 {
 	if(mpu.update() && lora_idle == true)
 	{
     if (millis() > prev_ms + TX_DELAY) {
       prev_ms = millis();
-      float vx = mpu.getLinearAccX();
-      float vy = mpu.getLinearAccY();
-      float vz = mpu.getLinearAccZ();
-      float qw = mpu.getQuaternionW();
-      float qx = mpu.getQuaternionX();
-      float qy = mpu.getQuaternionY();
-      float qz = mpu.getQuaternionZ();
+      float16 vx = mpu.getLinearAccX();
+      float16 vy = mpu.getLinearAccY();
+      float16 vz = mpu.getLinearAccZ();
+      float16 qw = mpu.getQuaternionW();
+      float16 qx = mpu.getQuaternionX();
+      float16 qy = mpu.getQuaternionY();
+      float16 qz = mpu.getQuaternionZ();
 
       float temp = mpu.getTemperature();
 
       Signal = analogRead(PulseSensorPurplePin);  // Read the PulseSensor's value.
-      uint8_t downcodedSignal = (uint8_t)(Signal / (2 * Threshold / 127)); // convert to a scale of 0-127 (assuming max hr signal is 5000)
+      // if(Signal > Threshold){
+      //   digitalWrite(LED_BUILTIN, HIGH);
+      // }else{
+      //   digitalWrite(LED_BUILTIN, LOW);
+      // }
+      // uint8_t downcodedSignal = (uint8_t)(Signal / (2 * Threshold / 127)); // convert to a scale of 0-127 (assuming max hr signal is 5000)
 
       // float temp = mpu.getTemperature();
-      sprintf(txpacket,"%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%d",vx,vy,vz,qw,qx,qy,qz,downcodedSignal);  //start a package
-    
-      Serial.printf("\r\nsending packet \"%s\" , length %d\r\n",txpacket, strlen(txpacket));
+      Telemetry pkt{vx, vy, vz, qw, qx, qy, qz, Signal};
+      Radio.Send((uint8_t*)&pkt, sizeof(pkt));
       
-
-      // display.drawString(display.getWidth()/2, display.getHeight()/2-10/2, String(pitch,2));
-      // display.drawString(display.getWidth()/2, display.getHeight()-30, String(roll,2));
-      Radio.Send( (uint8_t *)txpacket, strlen(txpacket) ); //send the package out	
       lora_idle = false;
       display.clear();
       display.screenRotate(ANGLE_90_DEGREE);
       display.setFont(ArialMT_Plain_24);
       display.drawString(0,0,"TX");
       display.setFont(ArialMT_Plain_10);
-      display.drawString(0, 26, "Temp: " + String(temp,2));
-      // drawBall(STEP);
-      // drawBall(STEP + 500);
+      display.drawString(0, 26, "Temp: " + String(temp,1));
+      drawBall(STEP);
+      drawBall(STEP + 200);
       display.display();
-      // STEP+=1;
-      // STEP %= 5000;
+      STEP+=1;
+      STEP %= 5000;
     }
 	}
   Radio.IrqProcess( );
@@ -193,7 +195,6 @@ void loop()
 
 void OnTxDone( void )
 {
-	Serial.println("TX done......");
 	lora_idle = true;
 }
 

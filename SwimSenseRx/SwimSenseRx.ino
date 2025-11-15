@@ -13,6 +13,7 @@
  * https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series
  * */
 
+#include "float16.h"
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
 #include "HT_SSD1306Wire.h"
@@ -22,9 +23,7 @@ static SSD1306Wire  display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, R
 
 #define RF_FREQUENCY                                915000000 // Hz
 
-#define TX_OUTPUT_POWER                             14        // dBm
-
-#define LORA_BANDWIDTH                              0         // [0: 125 kHz,
+#define LORA_BANDWIDTH                              1         // [0: 125 kHz,
                                                               //  1: 250 kHz,
                                                               //  2: 500 kHz,
                                                               //  3: Reserved]
@@ -40,10 +39,18 @@ static SSD1306Wire  display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, R
 
 
 #define RX_TIMEOUT_VALUE                            1000
-#define BUFFER_SIZE                                 50 // Define the payload size here
+// #define BUFFER_SIZE                                 50 // Define the payload size here
 
-char txpacket[BUFFER_SIZE];
-char rxpacket[BUFFER_SIZE];
+// char txpacket[BUFFER_SIZE];
+// char rxpacket[BUFFER_SIZE];
+
+struct Telemetry {
+  float16 vx, vy, vz;    // 12 bytes
+  float16 qw, qx, qy, qz;// 16 bytes
+  uint16_t signal;      // 2 byte
+} __attribute__((packed));
+
+Telemetry rxpacket;
 
 static RadioEvents_t RadioEvents;
 
@@ -65,7 +72,7 @@ void setup() {
     VextON();
 
     display.init();
-    display.screenRotate(ANGLE_270_DEGREE);
+    display.screenRotate(ANGLE_90_DEGREE);
     display.setFont(ArialMT_Plain_24);
     display.drawString(0,0,"RX");
 
@@ -91,8 +98,6 @@ void loop()
   if(lora_idle)
   {
     lora_idle = false;
-    Serial.println("into RX mode");
-    lastRx = millis();
     Radio.Rx(0);
   }else if(!disconnected && millis() > lastRx + 1000){
     display.clear();
@@ -140,8 +145,8 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 {
     rssi=rssi;
     rxSize=size;
-    memcpy(rxpacket, payload, size );
-    rxpacket[size]='\0';
+    memcpy(&rxpacket, payload, size);
+    // rxpacket[size]='\0';
     Radio.Sleep( );
     disconnected = false;
     char rssiStr[10];
@@ -157,8 +162,17 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
     // drawBall(STEP + 1000);
     display.drawString(0, 26, rssiStr);
     display.display();
-    Serial.printf("\r\nreceived packet \"%s\" with rssi %d , length %d\r\n",rxpacket,rssi,rxSize);
+    unsigned long curr = millis();
+    unsigned long dt = curr - lastRx;
+    lastRx = curr;
+    Serial.printf(
+      "%.3f,%.3f,%.3f,%.4f,%.4f,%.4f,%.4f,%d,%d,%d,%d\n",
+      rxpacket.vx.toFloat(), rxpacket.vy.toFloat(), rxpacket.vz.toFloat(),
+      rxpacket.qw.toFloat(), rxpacket.qx.toFloat(), rxpacket.qy.toFloat(), rxpacket.qz.toFloat(),
+      rxpacket.signal, rssi, dt, STEP
+    );
+    // Serial.printf("[%d]{%s},rssi:%d\n",rxSize,rxpacket,rssi);
     lora_idle = true;
     STEP++;
-    STEP %= 5000;
+    STEP %= 32767;
 }
